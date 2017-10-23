@@ -12,6 +12,33 @@ if cuda.cusolver_enabled:
     from cupy.cuda import cusolver
 
 
+def _multi_svd_norm(x, row_axis, col_axis, op):
+    """Compute a function of the singular values of the 2-D matrices in `x`.
+
+        This is a private utility function used by cupy.linalg.norm().
+        Parameters
+        ----------
+        x : ndarray
+        row_axis, col_axis : int
+            The axes of `x` that hold the 2-D matrices.
+        op : callable
+            This should be either cupy.amin or cupy.amax or cupy.sum.
+        Returns
+        -------
+        result : float or ndarray
+            If `x` is 2-D, the return values is a float.
+            Otherwise, it is an array with ``x.ndim - 2`` dimensions.
+            The return values are either the minimum or maximum or sum of the
+            singular values of the matrices, depending on whether `op`
+            is `cupy.amin` or `cupy.amax` or `cupy.sum`.
+        """
+    if row_axis > col_axis:
+        row_axis -= 1
+    y = cupy.rollaxis(cupy.rollaxis(x, col_axis, x.ndim), row_axis, -1)
+    result = op(decomposition.svd(y, compute_uv=0), axis=-1)
+    return result
+
+
 def norm(x, ord=None, axis=None, keepdims=False):
     """Returns one of matrix norms specified by ``ord`` parameter.
 
@@ -93,7 +120,11 @@ def norm(x, ord=None, axis=None, keepdims=False):
                              (axis, x.shape))
         if row_axis == col_axis:
             raise ValueError('Duplicate axes given.')
-        if ord == 1:
+        if ord == 2:
+            ret = _multi_svd_norm(x, row_axis, col_axis, cupy.amax)
+        elif ord == -2:
+            ret = _multi_svd_norm(x, row_axis, col_axis, cupy.amin)
+        elif ord == 1:
             if col_axis > row_axis:
                 col_axis -= 1
             ret = abs(x).sum(axis=row_axis).max(axis=col_axis)
